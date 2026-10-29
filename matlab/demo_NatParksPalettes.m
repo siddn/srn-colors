@@ -7,7 +7,7 @@ clear; close all
 pkg   = @NatParksPalettes;
 names = pkg("list");
 catName  = "Yellowstone";    % palette for the line plot
-contName = "Acadia";   % palette for the colormap
+contName = "Arches";   % palette for the colormap
 
 %% 1. All palettes
 fig = figure("Name", "NatParksPalettes swatches", "Color", "w");

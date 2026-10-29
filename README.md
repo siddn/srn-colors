@@ -22,8 +22,17 @@ rgb = MVZlibrary("theAuk", 5);
 rgb = NatParksPalettes("Glacier", [], "discrete", Direction=-1);
 ```
 
+To look at palettes, call a function with no output:
+
+```matlab
+wesanderson                       % figure with all palettes
+NatParksPalettes("Arches")        % one palette, with hex codes on the squares
+NatParksPalettes("Arches", 256)   % one palette as a 256-step gradient
+```
+
 Arguments: `name`, `n`, `type` (`"discrete"` or `"continuous"`).
-`NatParksPalettes` also accepts `Direction` and `OverrideOrder`.
+All three functions accept `Direction=-1`. This reverses the whole palette before the function takes the colors.
+`NatParksPalettes` also accepts `OverrideOrder`.
 Type `help <function>` for details.
 
 ## Demos
@@ -81,3 +90,8 @@ python tools/generate_palettes.py WES_DIR MVZ_DIR NAT_DIR matlab
 ```
 
 This also rewrites the `.ase` files in the `swatches` folder.
+
+
+## AI-generated code
+
+I had an ai Agent generate pretty much all of this code (claude specifically). For a personal project like this, which is largely just using other repos of colors in MATLAB instead of R, I don't feel very strongly one way or the other about AI generated code, and I suspect that the outputs are largely good enough, particularly since all outputs can be checked by eye. If your application is truly sensitive to colormap perceptuality, like medical image analysis or diagnosis, don't use this repo, use something more established/correct please.

@@ -1,13 +1,14 @@
 """Generate MATLAB palette functions and demo scripts from the R palette repos.
 
 Usage:
-    python generate_palettes.py WES_DIR MVZ_DIR NAT_DIR OUT_DIR [SWATCH_DIR]
+    python generate_palettes.py WES_DIR MVZ_DIR NAT_DIR POISON_DIR OUT_DIR [SWATCH_DIR]
 
-WES_DIR, MVZ_DIR and NAT_DIR are local clones of
+WES_DIR, MVZ_DIR, NAT_DIR and POISON_DIR are local clones of
     https://github.com/karthik/wesanderson
     https://github.com/eachambers/MVZlibrary
     https://github.com/kevinsblake/NatParksPalettes
-OUT_DIR receives wesanderson.m, MVZlibrary.m, NatParksPalettes.m and one
+    https://github.com/laurenoconnelllab/poisonfrogs
+OUT_DIR receives wesanderson.m, MVZlibrary.m, NatParksPalettes.m, poisonfrogs.m and one
 demo_<name>.m script for each of them. SWATCH_DIR (default: ../swatches next
 to OUT_DIR) receives one Adobe Swatch Exchange file (.ase) per package, with
 one color group per palette.
@@ -52,6 +53,15 @@ def code_lines(path: Path) -> list[str]:
 def parse_wes(repo: Path) -> dict:
     pals = {}
     for ln in code_lines(repo / "R" / "colors.R"):
+        m = WES_LINE.match(ln)
+        if m and HEX.search(m.group(2)):
+            pals[m.group(1)] = hexes(m.group(2))
+    return pals
+
+
+def parse_poison(repo: Path) -> dict:
+    pals = {}
+    for ln in code_lines(repo / "R" / "poison_frog_palettes.R"):
         m = WES_LINE.match(ln)
         if m and HEX.search(m.group(2)):
             pals[m.group(1)] = hexes(m.group(2))
@@ -106,14 +116,18 @@ h = char(extractAfter(hex(:), "#"));
 rgb = [hex2dec(h(:,1:2)), hex2dec(h(:,3:4)), hex2dec(h(:,5:6))] / 255;
 end
 
-function rgb = ramp_(base, n)
-% Linear interpolation in RGB, the same method as R's colorRampPalette.
+function rgb = ramp_(base, n, method)
+% Interpolation in RGB between the palette colors. The default is linear,
+% the same as R's colorRampPalette.
+if nargin < 3
+    method = "linear";
+end
 if n == 1
     rgb = base(1,:);
     return
 end
 x = linspace(0, 1, size(base,1));
-rgb = min(max(interp1(x, base, linspace(0, 1, n)), 0), 1);
+rgb = min(max(interp1(x, base, linspace(0, 1, n), method), 0), 1);
 end
 
 function show_swatches_(label, names, colors)
@@ -148,6 +162,29 @@ set(ax, "YTick", (-nRows:-1) + 0.45, "YTickLabel", flip(names), ...
 axis(ax, "tight"); ax.YAxis.Color = "none"; ax.YAxis.TickLabelColor = "k";
 title(ax, label, "Interpreter", "none")
 end
+
+function rgb = pick_(base, n, index, positions, method)
+% Colors at chosen palette positions (index), or at fractions from 0 to 1
+% along the blended palette (positions).
+if nargin < 5
+    method = "linear";
+end
+if ~isempty(n)
+    error("palette:conflictingOptions", "Do not combine n with Index or Positions.")
+end
+if ~isempty(index) && ~isempty(positions)
+    error("palette:conflictingOptions", "Use Index or Positions, not both.")
+end
+if ~isempty(index)
+    if any(index > size(base, 1))
+        error("palette:badIndex", "Index must be between 1 and %d.", size(base, 1))
+    end
+    rgb = base(index(:), :);
+else
+    x = linspace(0, 1, size(base, 1));
+    rgb = min(max(interp1(x, base, positions(:), method), 0), 1);
+end
+end
 '''
 
 WES_TEMPLATE = r'''function [rgb, info] = wesanderson(name, n, type, opts)
@@ -163,6 +200,12 @@ WES_TEMPLATE = r'''function [rgb, info] = wesanderson(name, n, type, opts)
 %       Direction  1 (default) or -1. With -1 the whole palette is reversed
 %                  first, then the colors are taken (so n = 3 gives the last
 %                  3 colors of the palette, in reverse order).
+%       Index      Pick colors by position in the palette, in the order you
+%                  give, for example Index=[1 3 5]. Repeats are allowed.
+%                  Do not combine with n.
+%       Positions  Pick colors at fractions from 0 (first color) to 1 (last
+%                  color) along the blended palette, for example
+%                  Positions=[0 0.25 1]. Do not combine with n or Index.
 %
 
 %   "Zissou1" with type "continuous" uses the hand-made "Zissou1Continuous"
@@ -180,6 +223,8 @@ arguments
     n double {mustBeInteger, mustBePositive, mustBeScalarOrEmpty} = []
     type (1,1) string {mustBeMember(type, ["discrete", "continuous"])} = "discrete"
     opts.Direction (1,1) double {mustBeMember(opts.Direction, [1 -1])} = 1
+    opts.Index double {mustBeInteger, mustBePositive} = []
+    opts.Positions double {mustBeGreaterThanOrEqual(opts.Positions, 0), mustBeLessThanOrEqual(opts.Positions, 1)} = []
 end
 P = palettes_();
 info = [];
@@ -202,6 +247,14 @@ end
 base = hex2rgb_(hex);
 if opts.Direction == -1
     base = flipud(base);
+end
+if ~isempty(opts.Index) || ~isempty(opts.Positions)
+    rgb = pick_(base, n, opts.Index, opts.Positions);
+    if nargout == 0
+        show_swatches_(name, name, {rgb})
+        clear rgb info
+    end
+    return
 end
 if isempty(n)
     n = size(base, 1);
@@ -226,6 +279,99 @@ __DATA__
 end
 ''' + HELPERS
 
+POISON_TEMPLATE = r'''function [rgb, info] = poisonfrogs(name, n, type, opts)
+%POISONFROGS  Color palettes inspired by poison frogs and other frogs.
+%   rgb = poisonfrogs(name)                  all 5 colors of a palette (5-by-3)
+%   rgb = poisonfrogs(name, n)               first n colors
+%   rgb = poisonfrogs(name, n, "continuous") n colors interpolated with a spline
+%   names = poisonfrogs("list")              names of all palettes
+%   poisonfrogs                              show all palettes in a figure
+%   poisonfrogs(name, ...)                   with no output: show that palette
+%
+%   Option (name-value)
+%       Direction  1 (default) or -1. With -1 the whole palette is reversed
+%                  first, then the colors are taken (so n = 3 gives the last
+%                  3 colors of the palette, in reverse order).
+%       Index      Pick colors by position in the palette, in the order you
+%                  give, for example Index=[1 3 5]. Repeats are allowed.
+%                  Do not combine with n.
+%       Positions  Pick colors at fractions from 0 (first color) to 1 (last
+%                  color) along the blended palette, for example
+%                  Positions=[0 0.25 1]. Do not combine with n or Index.
+%
+%   Difference from the R package: the R package blends colors with
+%   splinefun (method "fmm"). This version uses the MATLAB "spline" method
+%   (not-a-knot). Both are cubic splines. The blended colors can differ
+%   slightly. Values are clipped to the range 0 to 1, as in R.
+%
+%   Example
+%       set(groot, "defaultAxesColorOrder", poisonfrogs("Ramazonica"))
+%       colormap(poisonfrogs("Osotokiki", 256, "continuous"))
+%
+%   Source:  https://github.com/laurenoconnelllab/poisonfrogs  (commit __COMMIT__)
+%   License: MIT, Copyright (c) 2025 Camilo Rodriguez Lopez
+%   Generated by tools/generate_palettes.py. Do not edit by hand.
+arguments
+    name (1,1) string = ""
+    n double {mustBeInteger, mustBePositive, mustBeScalarOrEmpty} = []
+    type (1,1) string {mustBeMember(type, ["discrete", "continuous"])} = "discrete"
+    opts.Direction (1,1) double {mustBeMember(opts.Direction, [1 -1])} = 1
+    opts.Index double {mustBeInteger, mustBePositive} = []
+    opts.Positions double {mustBeGreaterThanOrEqual(opts.Positions, 0), mustBeLessThanOrEqual(opts.Positions, 1)} = []
+end
+P = palettes_();
+info = [];
+if name == "" || name == "list"
+    names = string(fieldnames(P));
+    if name == "" && nargout == 0
+        show_swatches_("poisonfrogs", names, arrayfun(@(k) poisonfrogs(k), names, "UniformOutput", false))
+        return
+    end
+    rgb = names;
+    return
+end
+if ~isfield(P, name)
+    error("poisonfrogs:unknownPalette", "Palette ""%s"" not found. Use poisonfrogs(""list"").", name)
+end
+base = hex2rgb_(P.(name));
+if opts.Direction == -1
+    base = flipud(base);
+end
+if ~isempty(opts.Index) || ~isempty(opts.Positions)
+    rgb = pick_(base, n, opts.Index, opts.Positions, "spline");
+    if nargout == 0
+        show_swatches_(name, name, {rgb})
+        clear rgb info
+    end
+    return
+end
+if isempty(n)
+    if type == "discrete"
+        n = size(base, 1);
+    else
+        n = 256;
+    end
+end
+if type == "discrete"
+    if n > size(base, 1)
+        error("poisonfrogs:tooManyColors", ...
+            "Palette ""%s"" has %d colors. Use type ""continuous"" for more.", name, size(base, 1))
+    end
+    rgb = base(1:n, :);
+else
+    rgb = ramp_(base, n, "spline");
+end
+if nargout == 0
+    show_swatches_(name, name, {rgb})
+    clear rgb info
+end
+end
+
+function P = palettes_()
+__DATA__
+end
+''' + HELPERS
+
 MVZ_TEMPLATE = r'''function [rgb, info] = MVZlibrary(name, n, type, opts)
 %MVZLIBRARY  Color palettes from the MVZ library (UC Berkeley).
 %   rgb = MVZlibrary(name)                  all colors of a palette (N-by-3)
@@ -238,6 +384,12 @@ MVZ_TEMPLATE = r'''function [rgb, info] = MVZlibrary(name, n, type, opts)
 %   Option (name-value)
 %       Direction  1 (default) or -1. With -1 the whole palette is reversed
 %                  first, then the colors are taken.
+%       Index      Pick colors by position in the palette, in the order you
+%                  give, for example Index=[1 3 5]. Repeats are allowed.
+%                  Do not combine with n.
+%       Positions  Pick colors at fractions from 0 (first color) to 1 (last
+%                  color) along the blended palette, for example
+%                  Positions=[0 0.25 1]. Do not combine with n or Index.
 %   [rgb, info] = MVZlibrary(name, ...)     info is "qualitative", "diverging"
 %                                           or "monochromatic"
 %
@@ -258,6 +410,8 @@ arguments
     n double {mustBeInteger, mustBePositive, mustBeScalarOrEmpty} = []
     type (1,1) string {mustBeMember(type, ["discrete", "continuous"])} = "discrete"
     opts.Direction (1,1) double {mustBeMember(opts.Direction, [1 -1])} = 1
+    opts.Index double {mustBeInteger, mustBePositive} = []
+    opts.Positions double {mustBeGreaterThanOrEqual(opts.Positions, 0), mustBeLessThanOrEqual(opts.Positions, 1)} = []
 end
 P = palettes_();
 if name == "" || name == "list"
@@ -276,6 +430,14 @@ end
 base = hex2rgb_(P.(name).hex);
 if opts.Direction == -1
     base = flipud(base);
+end
+if ~isempty(opts.Index) || ~isempty(opts.Positions)
+    rgb = pick_(base, n, opts.Index, opts.Positions);
+    if nargout == 0
+        show_swatches_(name, name, {rgb})
+        clear rgb info
+    end
+    return
 end
 info = string(P.(name).type);
 if isempty(n)
@@ -317,6 +479,13 @@ NAT_TEMPLATE = r'''function [rgb, info] = NatParksPalettes(name, n, type, opts)
 %       Direction     1 (default) or -1 to reverse the colors
 %       OverrideOrder true to take the first n colors instead of the
 %                     authors' readability order (discrete only)
+%       Index         Pick colors by position in the palette (source order,
+%                     not readability order), for example Index=[1 3 5].
+%                     Repeats are allowed. Do not combine with n.
+%       Positions     Pick colors at fractions from 0 (first color) to 1
+%                     (last color) along the blended palette, for example
+%                     Positions=[0 0.25 1]. Do not combine with n or Index.
+%                     Direction applies to both.
 %
 %   Direction = -1 with discrete colors:
 %       OverrideOrder false: pick the n colors by readability order, then
@@ -340,6 +509,8 @@ arguments
     n double {mustBeInteger, mustBePositive, mustBeScalarOrEmpty} = []
     type (1,1) string {mustBeMember(type, ["auto", "discrete", "continuous"])} = "auto"
     opts.Direction (1,1) double {mustBeMember(opts.Direction, [1 -1])} = 1
+    opts.Index double {mustBeInteger, mustBePositive} = []
+    opts.Positions double {mustBeGreaterThanOrEqual(opts.Positions, 0), mustBeLessThanOrEqual(opts.Positions, 1)} = []
     opts.OverrideOrder (1,1) logical = false
 end
 P = palettes_();
@@ -359,6 +530,17 @@ end
 p = P.(name);
 info = p.colorblind;
 base = hex2rgb_(p.hex);
+if ~isempty(opts.Index) || ~isempty(opts.Positions)
+    if opts.Direction == -1
+        base = flipud(base);
+    end
+    rgb = pick_(base, n, opts.Index, opts.Positions);
+    if nargout == 0
+        show_swatches_(name, name, {rgb})
+        clear rgb info
+    end
+    return
+end
 if isempty(n)
     n = size(base, 1);
 end
@@ -451,19 +633,22 @@ title(ax, contName + " (continuous)", "Interpreter", "none")
 
 
 def main(argv: list[str]) -> None:
-    if len(argv) not in (5, 6):
+    if len(argv) not in (6, 7):
         sys.exit(__doc__)
-    wes_dir, mvz_dir, nat_dir, out = (Path(a) for a in argv[1:5])
-    swatches = Path(argv[5]) if len(argv) == 6 else out.parent / "swatches"
+    wes_dir, mvz_dir, nat_dir, poison_dir, out = (Path(a) for a in argv[1:6])
+    swatches = Path(argv[6]) if len(argv) == 7 else out.parent / "swatches"
     out.mkdir(parents=True, exist_ok=True)
     swatches.mkdir(parents=True, exist_ok=True)
 
     wes = parse_wes(wes_dir)
     mvz = parse_mvz(mvz_dir)
     nat = parse_nat(nat_dir)
-    print(f"parsed: wesanderson={len(wes)}  MVZlibrary={len(mvz)}  NatParksPalettes={len(nat)}")
+    poison = parse_poison(poison_dir)
+    print(f"parsed: wesanderson={len(wes)}  MVZlibrary={len(mvz)}  "
+          f"NatParksPalettes={len(nat)}  poisonfrogs={len(poison)}")
 
     wes_data = "\n".join(f'P.{k} = {mat_hex(v)};' for k, v in wes.items())
+    poison_data = "\n".join(f'P.{k} = {mat_hex(v)};' for k, v in poison.items())
     mvz_data = "\n".join(
         f'P.{k} = struct("hex", {mat_hex(h)}, "type", "{t}");' for k, (h, t) in mvz.items()
     )
@@ -479,6 +664,8 @@ def main(argv: list[str]) -> None:
          {k: v[0] for k, v in mvz.items()}),
         ("NatParksPalettes", NAT_TEMPLATE, nat_data, nat_dir, "Yellowstone", "Arches",
          {k: v[0] for k, v in nat.items()}),
+        ("poisonfrogs", POISON_TEMPLATE, poison_data, poison_dir, "Ramazonica", "Osotokiki",
+         poison),
     ]
     for pkg, template, data, repo, cat, cont, hex_by_name in jobs:
         data = "\n".join("    " + ln for ln in data.splitlines())

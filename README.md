@@ -1,14 +1,15 @@
 # srn-colors
 
-MATLAB versions of three R color palette packages.
+MATLAB versions of four R color palette packages.
 
 | MATLAB file | Origin (R package) | Palettes |
 |---|---|---|
 | `matlab/wesanderson.m` | [karthik/wesanderson](https://github.com/karthik/wesanderson) | 24 |
 | `matlab/MVZlibrary.m` | [eachambers/MVZlibrary](https://github.com/eachambers/MVZlibrary) | 7 |
 | `matlab/NatParksPalettes.m` | [kevinsblake/NatParksPalettes](https://github.com/kevinsblake/NatParksPalettes) | 30 |
+| `matlab/poisonfrogs.m` | [laurenoconnelllab/poisonfrogs](https://github.com/laurenoconnelllab/poisonfrogs) | 41 |
 
-All three packages use the MIT license. The license and copyright holder are in the header of each file.
+All four packages use the MIT license. The license and copyright holder are in the header of each file.
 
 ## Use
 
@@ -31,18 +32,29 @@ NatParksPalettes("Arches", 256)   % one palette as a 256-step gradient
 ```
 
 Arguments: `name`, `n`, `type` (`"discrete"` or `"continuous"`).
-All three functions accept `Direction=-1`. This reverses the whole palette before the function takes the colors.
+All four functions accept `Direction=-1`. This reverses the whole palette before the function takes the colors.
 `NatParksPalettes` also accepts `OverrideOrder`.
+
+To pick colors at chosen points, use `Index` or `Positions`:
+
+```matlab
+wesanderson("Zissou1", Index=[1 3 5])                                % palette colors 1, 3 and 5
+wesanderson("Zissou1", Positions=[0 0.25 1])                         % points along the blended palette
+NatParksPalettes("Arches", Index=[9 1], Direction=-1)
+```
+
+`Index` counts positions in the palette in its source order. `Positions` runs from 0 (first color) to 1 (last color).
+Do not combine them with `n`. `Direction` is applied first.
 Type `help <function>` for details.
 
 ## Demos
 
-Run `demo_wesanderson`, `demo_MVZlibrary` or `demo_NatParksPalettes` from the `matlab` folder. Each demo shows all palettes, a line plot, and a colormap.
+Run `demo_wesanderson`, `demo_MVZlibrary`, `demo_NatParksPalettes` or `demo_poisonfrogs` from the `matlab` folder. Each demo shows all palettes, a line plot, and a colormap.
 
 ## Adobe swatches
 
 The `swatches` folder has one Adobe Swatch Exchange file for each package:
-`wesanderson.ase`, `MVZlibrary.ase` and `NatParksPalettes.ase`.
+`wesanderson.ase`, `MVZlibrary.ase`, `NatParksPalettes.ase` and `poisonfrogs.ase`.
 Each palette is one color group. The swatches are RGB and follow the palette order in the R source.
 
 To load a file in Illustrator:
@@ -65,12 +77,16 @@ How the lists were made:
 - Qualitative: the MVZ tag, or the NatParks colorblind flag, from the original authors.
   I did not check them myself.
 - `wesanderson` has no tags and no colorblind check.
+- `poisonfrogs` has no tags and no colorblind check. Every palette has 5 colors.
+  The lightness test passed 33 of the 41 palettes, so it does not separate them well.
+  The sequential entries in the table are my choice by eye: smooth dark-to-light ramps.
+  There are no diverging palettes. Use the others as discrete (qualitative) palettes only.
 
-| Use | `wesanderson` | `MVZlibrary` | `NatParksPalettes` |
-|---|---|---|---|
-| Sequential (continuous) | none | Zoology, Ensatina | Arches2, CapitolReef, Glacier, WindCave, Volcanoes, Denali* |
-| Diverging (continuous) | Zissou1 | LifeHistories, theAuk | Acadia, Arches, Olympic* |
-| Qualitative (discrete) | all others | NaturalHistory, FieldNotes, WesternBirds | Cuyahoga, DeathValley, Halekala, KingsCanyon, Triglav (colorblind flagged) |
+| Use | `wesanderson` | `MVZlibrary` | `NatParksPalettes` | `poisonfrogs` |
+|---|---|---|---|---|
+| Sequential (continuous) | none | Zoology, Ensatina | Arches2, CapitolReef, Glacier, WindCave, Volcanoes, Denali* | Osotokiki*, Rmarina*, Pterribilis*, Oploma* |
+| Diverging (continuous) | Zissou1 | LifeHistories, theAuk | Acadia, Arches, Olympic* | none |
+| Qualitative (discrete) | all others | NaturalHistory, FieldNotes, WesternBirds | Cuyahoga, DeathValley, Halekala, KingsCanyon, Triglav (colorblind flagged) | all others* |
 
 \* Not flagged colorblind friendly by the authors. Check before you use it.
 
@@ -80,13 +96,15 @@ Use the discrete (qualitative) palettes with a small `n`. They have no ordered l
 
 - `MVZlibrary`: for a discrete request with n smaller than the palette, R keeps the n colors nearest to the first color. MATLAB keeps n evenly spaced colors.
 - Continuous palettes use linear RGB interpolation, as `colorRampPalette` does in R.
+- `poisonfrogs`: the R package blends colors with a spline (`splinefun`, method "fmm"). MATLAB uses its own `spline` method (not-a-knot). Both are cubic splines, but the blended colors can differ slightly. Values are clipped to the range 0 to 1.
+- `poisonfrogs`: with no `n`, a continuous request gives 256 colors, as in R.
 
 ## Regenerate the MATLAB files
 
-Do not edit the `.m` files by hand. Clone the three R repos. Then run:
+Do not edit the `.m` files by hand. Clone the four R repos. Then run:
 
 ```
-python tools/generate_palettes.py WES_DIR MVZ_DIR NAT_DIR matlab
+python tools/generate_palettes.py WES_DIR MVZ_DIR NAT_DIR POISON_DIR matlab
 ```
 
 This also rewrites the `.ase` files in the `swatches` folder.

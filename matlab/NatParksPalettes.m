@@ -14,6 +14,13 @@ function [rgb, info] = NatParksPalettes(name, n, type, opts)
 %       Direction     1 (default) or -1 to reverse the colors
 %       OverrideOrder true to take the first n colors instead of the
 %                     authors' readability order (discrete only)
+%       Index         Pick colors by position in the palette (source order,
+%                     not readability order), for example Index=[1 3 5].
+%                     Repeats are allowed. Do not combine with n.
+%       Positions     Pick colors at fractions from 0 (first color) to 1
+%                     (last color) along the blended palette, for example
+%                     Positions=[0 0.25 1]. Do not combine with n or Index.
+%                     Direction applies to both.
 %
 %   Direction = -1 with discrete colors:
 %       OverrideOrder false: pick the n colors by readability order, then
@@ -37,6 +44,8 @@ arguments
     n double {mustBeInteger, mustBePositive, mustBeScalarOrEmpty} = []
     type (1,1) string {mustBeMember(type, ["auto", "discrete", "continuous"])} = "auto"
     opts.Direction (1,1) double {mustBeMember(opts.Direction, [1 -1])} = 1
+    opts.Index double {mustBeInteger, mustBePositive} = []
+    opts.Positions double {mustBeGreaterThanOrEqual(opts.Positions, 0), mustBeLessThanOrEqual(opts.Positions, 1)} = []
     opts.OverrideOrder (1,1) logical = false
 end
 P = palettes_();
@@ -56,6 +65,17 @@ end
 p = P.(name);
 info = p.colorblind;
 base = hex2rgb_(p.hex);
+if ~isempty(opts.Index) || ~isempty(opts.Positions)
+    if opts.Direction == -1
+        base = flipud(base);
+    end
+    rgb = pick_(base, n, opts.Index, opts.Positions);
+    if nargout == 0
+        show_swatches_(name, name, {rgb})
+        clear rgb info
+    end
+    return
+end
 if isempty(n)
     n = size(base, 1);
 end
@@ -133,14 +153,18 @@ h = char(extractAfter(hex(:), "#"));
 rgb = [hex2dec(h(:,1:2)), hex2dec(h(:,3:4)), hex2dec(h(:,5:6))] / 255;
 end
 
-function rgb = ramp_(base, n)
-% Linear interpolation in RGB, the same method as R's colorRampPalette.
+function rgb = ramp_(base, n, method)
+% Interpolation in RGB between the palette colors. The default is linear,
+% the same as R's colorRampPalette.
+if nargin < 3
+    method = "linear";
+end
 if n == 1
     rgb = base(1,:);
     return
 end
 x = linspace(0, 1, size(base,1));
-rgb = min(max(interp1(x, base, linspace(0, 1, n)), 0), 1);
+rgb = min(max(interp1(x, base, linspace(0, 1, n), method), 0), 1);
 end
 
 function show_swatches_(label, names, colors)
@@ -174,4 +198,27 @@ set(ax, "YTick", (-nRows:-1) + 0.45, "YTickLabel", flip(names), ...
     "XTick", [], "TickLabelInterpreter", "none", "TickLength", [0 0], "Box", "off")
 axis(ax, "tight"); ax.YAxis.Color = "none"; ax.YAxis.TickLabelColor = "k";
 title(ax, label, "Interpreter", "none")
+end
+
+function rgb = pick_(base, n, index, positions, method)
+% Colors at chosen palette positions (index), or at fractions from 0 to 1
+% along the blended palette (positions).
+if nargin < 5
+    method = "linear";
+end
+if ~isempty(n)
+    error("palette:conflictingOptions", "Do not combine n with Index or Positions.")
+end
+if ~isempty(index) && ~isempty(positions)
+    error("palette:conflictingOptions", "Use Index or Positions, not both.")
+end
+if ~isempty(index)
+    if any(index > size(base, 1))
+        error("palette:badIndex", "Index must be between 1 and %d.", size(base, 1))
+    end
+    rgb = base(index(:), :);
+else
+    x = linspace(0, 1, size(base, 1));
+    rgb = min(max(interp1(x, base, positions(:), method), 0), 1);
+end
 end
